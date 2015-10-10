@@ -2,20 +2,24 @@
 # encoding: utf=8
 
 """
-afromb.py
-Re-synthesize song A using the segments of song B.
-By Ben Lacker, 2009-02-24.
+afrombc.py
+
+Re-synthesize song A using the segments of songs B and C.\n
+By Jordan B. L. Smith, 2015\n
+
+Based on afromb.py by Ben Lacker, 2009-02-24.
 """
 import numpy
 import sys
 import time
 import echonest.remix.audio as audio
-
+import argparse
+    
 usage="""
 Usage:
-    python afromb.py <inputfilenameA> <inputfilenameB> <outputfilename> <Mix> [env]
+    python afrombc.py <inputfilenameA> <inputfilenameB> <inputfilenameC> <outputfilename> <Mix> [env]
 Example:
-    python afromb.py BillieJean.mp3 CryMeARiver.mp3 BillieJeanFromCryMeARiver.mp3 0.9 env
+    python afrombc.py BillieJean.mp3 CryMeARiver.mp3 AnotherSong.mp3 BillieJeanFromCryMeAnother.mp3 0.9 env
 The 'env' flag applies the volume envelopes of the segments of A to those
 from B.
 Mix is a number 0-1 that determines the relative mix of the resynthesized
@@ -24,16 +28,32 @@ is mostly the resynthesized version.
 """
 
 class AfromB(object):
-    def __init__(self, input_filename_a, input_filename_b, input_filename_c, output_filename):
-        self.input_a = audio.LocalAudioFile(input_filename_a)
-        self.input_b = audio.LocalAudioFile(input_filename_b)
-        self.input_c = audio.LocalAudioFile(input_filename_c)
+    def __init__(self, target_filename, input_filename_bz, output_filename):
+        # self.input_a = audio.LocalAudioFile(target_filename)
+        # self.input_b = audio.LocalAudioFile(input_filename_bz[0])
+        # # self.input_c = audio.LocalAudioFile(input_filename_c)
+        # self.segs_a = self.input_a.analysis.segments
+        # self.segs_b = self.input_b.analysis.segments
+        # # self.segs_c = self.input_c.analysis.segments
+        # self.inputopts = [self.input_b, self.input_b]
+        # self.segopts = [self.segs_b, self.segs_b]
+        # self.output_filename = output_filename
+        self.input_a = audio.LocalAudioFile(target_filename)
         self.segs_a = self.input_a.analysis.segments
-        self.segs_b = self.input_b.analysis.segments
-        self.segs_c = self.input_c.analysis.segments
-        self.inputopts = [self.input_b, self.input_c]
-        self.segopts = [self.segs_b, self.segs_c]
+        self.inputopts = []
+        self.segopts = []
+        for filename in input_filename_bz:
+            self.inputopts.append(audio.LocalAudioFile(filename))
+            self.segopts.append(self.inputopts[-1].analysis.segments)
+        
+        # self.input_c = audio.LocalAudioFile(input_filename_c)
+        # self.segs_a = self.input_a.analysis.segments
+        # self.segs_b = self.input_b.analysis.segments
+        # self.segs_c = self.input_c.analysis.segments
+        # self.inputopts = [self.input_b, self.input_b]
+        # self.segopts = [self.segs_b, self.segs_b]
         self.output_filename = output_filename
+
 
     def calculate_distances(self, a, segs):
         distance_matrix = numpy.zeros((len(segs), 4),
@@ -87,7 +107,7 @@ class AfromB(object):
             new_shape = (dur,)
             new_channels = 1
         out = audio.AudioData(shape=new_shape,
-                            sampleRate=self.input_b.sampleRate,
+                            sampleRate=self.inputopts[0].sampleRate,
                             numChannels=new_channels)
         for a in self.segs_a:
             seg_index = a.absolute_context()[0]
@@ -161,22 +181,43 @@ class AfromB(object):
             out.append(mixed_data)
         out.encode(self.output_filename)
 
+# def parseArgs(args):
+#     target_file = args[1+args.index("-target")]
+#     mix_level = args[1+args.index("-level")]
+#     env = args[1+args.index("-level")]
+#     nsources = args[1+args.index("-sources")]
+#     source_files = args[(2+args.index("-sources"):)]
+#     inputb, inputc = args[1+args.index("-source"):]
+#     target_file = args[1]
+#     source_files = args[2:len(args)-3]
+#     # input_filename_a = args[1]
+#     # input_filename_b = args[2]
+#     # input_filename_c = args[3]
+#     output_filename = args[len(args)-3]
+#     mix = args[len(args)-2]
+#     # if len(args) == 7:
+#     #     env = True
+#     # else:
+#     #     env = False
+#     return input_filename_a, input_filename_b, input_filename_c, output_filename, mix, env
+
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('target', help='Target file to reconstruct')
+    parser.add_argument('sources',nargs='+',default=["Song A","Song B"], type=str, help='Source files to use for reconstruction (list as many as you like)')
+    parser.add_argument('-o','--output_file', help='Output file (default: tmp.mp3)', default="tmp.mp3", required=False, type=str)
+    parser.add_argument('-m','--mix', help='Mixing level (default is 1, all wet)', default=1, required=False, type=float)
+    parser.add_argument('-s','--scale', help='Hierarchical scale at which to remix elements', default='segments', required=False, type=str)
+    parser.add_argument('--env', help='Flag to use enveloping', action='store_true', required=False)
     try:
-        input_filename_a = sys.argv[1]
-        input_filename_b = sys.argv[2]
-        input_filename_c = sys.argv[3]
-        output_filename = sys.argv[4]
-        mix = sys.argv[5]
-        if len(sys.argv) == 7:
-            env = True
-        else:
-            env = False
+        args = parser.parse_args()
+        print args
     except:
         print usage
         sys.exit(-1)
-    AfromB(input_filename_a, input_filename_b, input_filename_c, output_filename).run(mix=mix,
-                                                                envelope=env)
+    
+    AfromB(args.target, args.sources, args.output_file).run(mix=args.mix,
+                                                                envelope=args.env)
 
 if __name__=='__main__':
     tic = time.time()
