@@ -2,13 +2,16 @@
 # encoding: utf=8
 
 """
-afrombc.py
+afrombtoz.py
 
-Re-synthesize song A using the segments of songs B and C.\n
-By Jordan B. L. Smith, 2015\n
+Re-synthesize song A using the segments of songs B to Z.
 
-Based on afromb.py by Ben Lacker, 2009-02-24.
+This is the same as afromb.py by Ben Lacker (2009-02-24),
+except it allows multiple source files instead of just one.
+
+By Jordan B. L. Smith, 2015
 """
+
 import numpy
 import sys
 import time
@@ -16,42 +19,28 @@ import echonest.remix.audio as audio
 import argparse
     
 usage="""
-Usage:
-    python afrombc.py <inputfilenameA> <inputfilenameB> <inputfilenameC> <outputfilename> <Mix> [env]
 Example:
-    python afrombc.py BillieJean.mp3 CryMeARiver.mp3 AnotherSong.mp3 BillieJeanFromCryMeAnother.mp3 0.9 env
+    python afrombtoz.py A.mp3 B.mp3 C.mp3 D.mp3 -o output.mp3 -m 0.8
+
+This will attempt to recreate A (the target) from B, C and D (the sources).
+
 The 'env' flag applies the volume envelopes of the segments of A to those
 from B.
-Mix is a number 0-1 that determines the relative mix of the resynthesized
-song and the original input A. i.e. a mix value of 0.9 yields an output that
-is mostly the resynthesized version.
+
+Mix (-m) is a number 0-1 that determines the relative mix of the resynthesized
+(wet) output. If m = 0.8, the mix will be mostly resynthesized.
 """
 
 class AfromB(object):
-    def __init__(self, target_filename, input_filename_bz, output_filename):
-        # self.input_a = audio.LocalAudioFile(target_filename)
-        # self.input_b = audio.LocalAudioFile(input_filename_bz[0])
-        # # self.input_c = audio.LocalAudioFile(input_filename_c)
-        # self.segs_a = self.input_a.analysis.segments
-        # self.segs_b = self.input_b.analysis.segments
-        # # self.segs_c = self.input_c.analysis.segments
-        # self.inputopts = [self.input_b, self.input_b]
-        # self.segopts = [self.segs_b, self.segs_b]
-        # self.output_filename = output_filename
-        self.input_a = audio.LocalAudioFile(target_filename)
-        self.segs_a = self.input_a.analysis.segments
-        self.inputopts = []
-        self.segopts = []
-        for filename in input_filename_bz:
-            self.inputopts.append(audio.LocalAudioFile(filename))
-            self.segopts.append(self.inputopts[-1].analysis.segments)
+    def __init__(self, target_filename, input_filenames_bz, output_filename):
+        self.target = audio.LocalAudioFile(target_filename)
+        self.target_segs = self.target.analysis.segments
+        self.sources = []
+        self.source_segs = []
+        for filename in input_filenames_bz:
+            self.sources.append(audio.LocalAudioFile(filename))
+            self.source_segs.append(self.sources[-1].analysis.segments)
         
-        # self.input_c = audio.LocalAudioFile(input_filename_c)
-        # self.segs_a = self.input_a.analysis.segments
-        # self.segs_b = self.input_b.analysis.segments
-        # self.segs_c = self.input_c.analysis.segments
-        # self.inputopts = [self.input_b, self.input_b]
-        # self.segopts = [self.segs_b, self.segs_b]
         self.output_filename = output_filename
 
 
@@ -98,34 +87,27 @@ class AfromB(object):
         return m
 
     def run(self, mix=0.5, envelope=False):
-        dur = len(self.input_a.data) + 100000 # another two seconds
+        dur = len(self.target.data) + 100000 # another two seconds
         # determine shape of new array
-        if len(self.input_a.data.shape) > 1:
-            new_shape = (dur, self.input_a.data.shape[1])
-            new_channels = self.input_a.data.shape[1]
+        if len(self.target.data.shape) > 1:
+            new_shape = (dur, self.target.data.shape[1])
+            new_channels = self.target.data.shape[1]
         else:
             new_shape = (dur,)
             new_channels = 1
         out = audio.AudioData(shape=new_shape,
-                            sampleRate=self.inputopts[0].sampleRate,
+                            sampleRate=self.sources[0].sampleRate,
                             numChannels=new_channels)
-        for a in self.segs_a:
+        for a in self.target_segs:
             seg_index = a.absolute_context()[0]
-            # # find best match from segs in B
-            # distance_matrix_ab = self.calculate_distances(a)
-            # distance_matrix_ac = self.calculate_distances(a)
-            # distances = [numpy.sqrt(x[0]+x[1]+x[2]) for x in distance_matrix_ab]
-            # match = self.segs_b[distances.index(min(distances))]
-            # segment_data = self.input_b[match]
-            # reference_data = self.input_a[a]
-            distance_matrices = [self.calculate_distances(a,segs_i) for segs_i in self.segopts]
+            distance_matrices = [self.calculate_distances(a,segs_i) for segs_i in self.source_segs]
             distances_fromi = [[numpy.sqrt(x[0]+x[1]+x[2]) for x in distance_matrix_atoi] for distance_matrix_atoi in distance_matrices]
             minima = [(min(dists), dists.index(min(dists))) for dists in distances_fromi]
             segopts_index = minima.index(min(minima))
             seg_index = minima[segopts_index][1]
-            match = self.segopts[segopts_index][distances_fromi[segopts_index].index(minima[segopts_index][0])]
-            segment_data = self.inputopts[segopts_index][match]
-            reference_data = self.input_a[a]
+            match = self.source_segs[segopts_index][distances_fromi[segopts_index].index(minima[segopts_index][0])]
+            segment_data = self.sources[segopts_index][match]
+            reference_data = self.target[a]
             if segment_data.endindex < reference_data.endindex:
                 if new_channels > 1:
                     silence_shape = (reference_data.endindex,new_channels)
@@ -145,10 +127,10 @@ class AfromB(object):
                 # db -> voltage ratio http://www.mogami.com/e/cad/db.html
                 linear_max_volume = pow(10.0,a.loudness_max/20.0)
                 linear_start_volume = pow(10.0,a.loudness_begin/20.0)
-                if(seg_index == len(self.segs_a)-1): # if this is the last segment
+                if(seg_index == len(self.target_segs)-1): # if this is the last segment
                     linear_next_start_volume = 0
                 else:
-                    linear_next_start_volume = pow(10.0,self.segs_a[seg_index+1].loudness_begin/20.0)
+                    linear_next_start_volume = pow(10.0,self.target_segs[seg_index+1].loudness_begin/20.0)
                     pass
                 when_max_volume = a.time_loudness_max
                 # Count # of ticks I wait doing volume ramp so I can fix up rounding errors later.
@@ -180,26 +162,6 @@ class AfromB(object):
             mixed_data = audio.mix(segment_data,reference_data,mix=mix)
             out.append(mixed_data)
         out.encode(self.output_filename)
-
-# def parseArgs(args):
-#     target_file = args[1+args.index("-target")]
-#     mix_level = args[1+args.index("-level")]
-#     env = args[1+args.index("-level")]
-#     nsources = args[1+args.index("-sources")]
-#     source_files = args[(2+args.index("-sources"):)]
-#     inputb, inputc = args[1+args.index("-source"):]
-#     target_file = args[1]
-#     source_files = args[2:len(args)-3]
-#     # input_filename_a = args[1]
-#     # input_filename_b = args[2]
-#     # input_filename_c = args[3]
-#     output_filename = args[len(args)-3]
-#     mix = args[len(args)-2]
-#     # if len(args) == 7:
-#     #     env = True
-#     # else:
-#     #     env = False
-#     return input_filename_a, input_filename_b, input_filename_c, output_filename, mix, env
 
 def main():
     parser = argparse.ArgumentParser()
